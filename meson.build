@@ -14,6 +14,7 @@ wayland_deps = [
   dependency('cairo'),
   dependency('pangocairo'),
   dependency('json-c'),
+  dependency('xkbcommon'),
 ]
 
 # Track the protocol XML as a file object so Meson can handle it properly
@@ -64,6 +65,7 @@ exe_sources = [
   'src/ipc.c',
   'src/wayland.c',
   'src/render.c',
+  'src/input.c',
   'src/logger/logger.c',
   xdg_shell_code,       # Generated C source (xdg-shell)
   xdg_shell_header,     # Generated header (xdg-shell)

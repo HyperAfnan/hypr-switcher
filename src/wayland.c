@@ -3,7 +3,7 @@
 #include "render.h"
 #include "util.h"
 #include "ipc.h"
-#include <math.h>
+#include "input.h" /* input API for ESC and Alt+Tab */
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
@@ -14,6 +14,7 @@ static struct wl_shm *shm;
 static struct zwlr_layer_shell_v1 *layer_shell;
 static struct wl_surface *surface;
 static struct zwlr_layer_surface_v1 *layer_surface;
+static struct wl_seat *seat; /* seat to attach keyboard */
 
 static int initial_width = 600;
 static int initial_height = 120;
@@ -38,6 +39,10 @@ static void registry_add(void *data, struct wl_registry *registry,
     else if (strcmp(interface, "zwlr_layer_shell_v1") == 0) {
         layer_shell = wl_registry_bind(registry, name,
             &zwlr_layer_shell_v1_interface, 3);
+    }
+    else if (strcmp(interface, "wl_seat") == 0) {
+        seat = wl_registry_bind(registry, name, &wl_seat_interface, 7);
+        input_handle_seat(seat);
     }
 }
 
@@ -71,11 +76,19 @@ static void layer_surface_configure(void *data,
     zwlr_layer_surface_v1_ack_configure(lsurf, serial);
     configured = 1;
 
-    char **titles = NULL;
+    HyprClientInfo *clients = NULL;
     size_t count = 0;
-    int minimumHeight = 40;
+    int minimumHeight = 50;
+    int focused_index = -1;
 
-    if (hypr_ipc_get_client_titles(&titles, &count) == 0) {
+    if (hypr_ipc_get_clients_basic(&clients, &count) == 0) {
+
+        for (size_t i = 0; i < count; ++i) {
+            if (clients[i].focused || clients[i].focusHistoryID == 0) {
+                focused_index = (int)i;
+                break;
+            }
+        }
 
         uint32_t desired_height = (uint32_t)(count * minimumHeight);
         if (desired_height < (uint32_t)minimumHeight) desired_height = minimumHeight;
@@ -83,12 +96,21 @@ static void layer_surface_configure(void *data,
         current_height = desired_height;
 
         zwlr_layer_surface_v1_set_size(lsurf, current_width, current_height);
-        LOG_DEBUG("Dynamic height: %u (titles: %zu)", current_height, count);
+        LOG_DEBUG("Dynamic height: %u (clients: %zu, focus=%d)", current_height, count, focused_index);
 
-        render_draw_titles(surface, current_width, current_height,
-                           (const char **)titles, count);
+        const char **titles = calloc(count, sizeof(char *));
+        if (titles) {
+            for (size_t i = 0; i < count; ++i) {
+                titles[i] = clients[i].app_class ? clients[i].app_class :
+                            (clients[i].title ? clients[i].title : "(untitled)");
+            }
+            render_draw_titles_focus(surface, current_width, current_height, titles, count, focused_index);
+            free(titles);
+        } else {
+            render_draw_titles_focus(surface, current_width, current_height, NULL, 0, -1);
+        }
 
-        hypr_ipc_free_titles(titles, count);
+        hypr_ipc_free_client_infos(clients, count);
 
     } else {
         render_draw(surface, current_width, current_height);
@@ -137,7 +159,8 @@ void create_layer_surface() {
         ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
         ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
 
-    zwlr_layer_surface_v1_set_keyboard_interactivity(layer_surface, 0);
+    /* Enable keyboard interactivity so we receive key events (ESC, Alt+Tab) */
+    input_enable_layer_keyboard(layer_surface);
 
     zwlr_layer_surface_v1_add_listener(layer_surface,
                                        &layer_surface_listener, NULL);
@@ -152,14 +175,33 @@ void wayland_render() {
 }
 
 void wayland_loop() {
-    while (display && wl_display_dispatch(display) != -1) {}
+    while (display && wl_display_dispatch(display) != -1) {
+        /* Auto-close if we lost keyboard focus (overlay becomes inert) */
+        if (input_focus_lost()) {
+            LOG_INFO("[INPUT] Focus lost; closing overlay.");
+            wayland_shutdown();
+            break;
+        }
+        if (input_escape_pressed()) {
+            LOG_INFO("[INPUT] Escape pressed, shutting down.");
+            wayland_shutdown();
+            break;
+        }
+        if (input_alt_tab_triggered()) {
+            LOG_INFO("[INPUT] Alt+Tab detected, closing overlay.");
+            wayland_shutdown();
+            break;
+        }
+    }
 }
 
 void wayland_shutdown() {
+    input_shutdown();
     if (layer_surface) { zwlr_layer_surface_v1_destroy(layer_surface); layer_surface = NULL; }
     if (surface) { wl_surface_destroy(surface); surface = NULL; }
     if (layer_shell) { zwlr_layer_shell_v1_destroy(layer_shell); layer_shell = NULL; }
     if (compositor) { wl_compositor_destroy(compositor); compositor = NULL; }
     if (shm) { wl_shm_destroy(shm); shm = NULL; }
+    if (seat) { wl_seat_destroy(seat); seat = NULL; }
     if (display) { wl_display_disconnect(display); display = NULL; }
 }
