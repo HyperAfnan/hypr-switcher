@@ -1,0 +1,79 @@
+# hyprswitcher configuration file
+#
+# Copy this file to: ~/.config/hyprswitcher/config
+# or: $XDG_CONFIG_HOME/hyprswitcher/config
+#
+# Lines starting with # are comments
+# Format: key=value (spaces around = are trimmed)
+
+# ============================================================================
+# Font Settings
+# ============================================================================
+# Pango font description (name and size)
+font=Sans 14
+
+# ============================================================================
+# Colors
+# ============================================================================
+# Colors are in hex format: #RGB, #RGBA, #RRGGBB, or #RRGGBBAA
+# Alpha (AA) is optional; FF = fully opaque, 00 = fully transparent
+
+# Overlay background color
+background_color=#1a1a1eEB
+
+# Normal text color
+text_color=#F2F2F2
+
+# Selected item text color
+text_selected_color=#FFFFFF
+
+# Selected item background fill
+highlight_color=#4A9DFF40
+
+# Selected item border color
+highlight_border=#5AA5FFEE
+
+# Normal item border color
+border_color=#666666A0
+
+# ============================================================================
+# Sizing (in pixels)
+# ============================================================================
+
+# Outer padding around the item list
+padding=16
+
+# Horizontal padding inside each item
+item_padding_x=12
+
+# Vertical padding inside each item (affects text vertical position)
+item_padding_y=8
+
+# Height of each window item row
+item_height=48
+
+# Corner radius for rounded rectangles
+corner_radius=8
+
+# Border width for normal (unselected) items
+border_width=1
+
+# Border width for the selected item
+border_width_selected=2
+
+# Overlay width (0 = use default)
+overlay_width=600
+
+# Maximum number of visible items (0 = no limit, show all)
+# If there are more windows, scroll indicators will appear
+max_visible_items=12
+
+# ============================================================================
+# Behavior
+# ============================================================================
+
+# Show item index numbers (1. Firefox, 2. Terminal, etc.)
+show_index=false
+
+# Center text within items (default: left-aligned)
+center_text=false

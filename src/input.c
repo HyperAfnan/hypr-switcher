@@ -21,6 +21,7 @@
 
 static struct wl_keyboard *g_keyboard = NULL;
 static bool g_alt_down = false;
+static bool g_shift_down = false;
 static bool g_esc_flag = false;
 static bool g_alt_tab_flag = false;
 static uint32_t g_last_alt_press_time = 0; /* timestamp of last Alt press (wayland time msec) */
@@ -45,6 +46,11 @@ static void update_mods_from_state() {
     bool alt  = xkb_state_mod_name_is_active(
         g_xkb_state, "Alt", XKB_STATE_MODS_EFFECTIVE) > 0;
     g_alt_down = (mod1 || alt);
+
+    /* Track Shift modifier for reverse cycling */
+    bool shift = xkb_state_mod_name_is_active(
+        g_xkb_state, XKB_MOD_NAME_SHIFT, XKB_STATE_MODS_EFFECTIVE) > 0;
+    g_shift_down = shift;
 }
 
 static void keyboard_keymap(void *data,
@@ -118,6 +124,7 @@ static void keyboard_enter(void *data, struct wl_keyboard *keyboard, uint32_t se
     (void)keys;
     bool prev_focus = g_has_focus;
     g_alt_down = false;
+    g_shift_down = false;
     g_has_focus = true;
     LOG_DEBUG("[INPUT] Keyboard enter (serial=%u prev_focus=%d new_focus=1 alt_down=%d esc=%d altTab=%d)", serial, prev_focus, g_alt_down, g_esc_flag, g_alt_tab_flag);
 }
@@ -142,6 +149,7 @@ static void keyboard_leave(void *data, struct wl_keyboard *keyboard, uint32_t se
     }
     g_focus_lost_flag = true;
     g_alt_down = false;
+    g_shift_down = false;
     g_has_focus = false;
 }
 
@@ -287,6 +295,10 @@ bool input_alt_is_down(void) {
     return g_alt_down;
 }
 
+bool input_shift_is_down(void) {
+    return g_shift_down;
+}
+
 bool input_alt_released(void) {
     if (g_alt_release_flag) {
         g_alt_release_flag = false;
@@ -319,6 +331,7 @@ void input_clear_flags(void) {
     g_alt_tab_flag = false;
     g_focus_lost_flag = false;
     g_alt_release_flag = false;
+    g_shift_down = false;
 }
 
 void input_shutdown(void) {
@@ -339,6 +352,7 @@ void input_shutdown(void) {
         g_xkb_ctx = NULL;
     }
     g_alt_down = false;
+    g_shift_down = false;
     input_clear_flags();
     LOG_INFO("[INPUT] Input subsystem shut down (xkb cleaned).");
 }
