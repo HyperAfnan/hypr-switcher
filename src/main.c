@@ -16,5 +16,7 @@ int main() {
 
     wayland_loop();
 
+    /* Ensure logs flushed before exiting */
+    log_close();
     return 0;
 }

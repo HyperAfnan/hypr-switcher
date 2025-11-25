@@ -41,6 +41,9 @@ void input_enable_layer_keyboard(struct zwlr_layer_surface_v1 *layer_surface);
 /* Query whether the input system currently believes it has keyboard focus. */
 bool input_has_focus(void);
 bool input_focus_lost(void);
+/* Alt state helpers */
+bool input_alt_is_down(void);
+bool input_alt_released(void);
 
 /* Returns true exactly once per Escape key press (press event). */
 bool input_escape_pressed(void);

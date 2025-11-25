@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <xkbcommon/xkbcommon.h>
+#include <ipc.h>
 
 /*
  * Minimal keyboard input handling:
@@ -27,6 +28,7 @@ static uint32_t g_last_key_time = 0;       /* timestamp of last key event */
 static uint32_t g_last_leave_time = 0;     /* synthetic counter for leave events */
 static bool g_has_focus = false;           /* tracks whether keyboard focus is on our surface */
 static bool g_focus_lost_flag = false;     /* set when a leave occurs; consumed by input_focus_lost() */
+static bool g_alt_release_flag = false;    /* one-shot: set on Alt release */
 
 /* xkbcommon state */
 static struct xkb_context *g_xkb_ctx = NULL;
@@ -114,7 +116,6 @@ static void keyboard_enter(void *data, struct wl_keyboard *keyboard, uint32_t se
     (void)serial;
     (void)surface;
     (void)keys;
-    /* Focus gained: reset alt tracking, mark focus */
     bool prev_focus = g_has_focus;
     g_alt_down = false;
     g_has_focus = true;
@@ -199,6 +200,7 @@ static void keyboard_key(void *data, struct wl_keyboard *keyboard, uint32_t seri
         bool is_alt_release = (sym == XKB_KEY_Alt_L || sym == XKB_KEY_Alt_R || key == 56 || key == 100);
         if (is_alt_release) {
             g_alt_down = false;
+            g_alt_release_flag = true;
             LOG_DEBUG("[INPUT] Alt released (sym=%u focus=%d)", sym, g_has_focus);
         }
     }
@@ -281,6 +283,19 @@ bool input_focus_lost(void) {
     return false;
 }
 
+bool input_alt_is_down(void) {
+    return g_alt_down;
+}
+
+bool input_alt_released(void) {
+    if (g_alt_release_flag) {
+        g_alt_release_flag = false;
+        LOG_DEBUG("[INPUT] alt release flag consumed");
+        return true;
+    }
+    return false;
+}
+
 bool input_escape_pressed(void) {
     if (g_esc_flag) {
         g_esc_flag = false;
@@ -303,6 +318,7 @@ void input_clear_flags(void) {
     g_esc_flag = false;
     g_alt_tab_flag = false;
     g_focus_lost_flag = false;
+    g_alt_release_flag = false;
 }
 
 void input_shutdown(void) {

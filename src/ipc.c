@@ -43,7 +43,7 @@ static int hypr_open_socket(void) {
     return fd;
 }
 
-static int hypr_ipc_send_recv(const char *cmd, char **out_json) {
+int hypr_ipc_send_recv(const char *cmd, char **out_json) {
     if (!cmd || !out_json) return -1;
 
     int fd = hypr_open_socket();
@@ -154,97 +154,9 @@ void hypr_ipc_connect() {
     close(fd);
 }
 
-void hypr_ipc_print_clients() {
-    char *resp = NULL;
-    if (hypr_ipc_send_recv("j/clients", &resp) != 0) {
-        LOG_INFO("[IPC] Failed to fetch clients\n");
-        return;
-    }
+/* Removed unused hypr_ipc_print_clients() */
 
-    json_object *parsed = json_tokener_parse(resp);
-    free(resp);
-    if (!parsed || !json_object_is_type(parsed, json_type_array)) {
-        if (parsed) json_object_put(parsed);
-        LOG_INFO("[IPC] Invalid clients payload\n");
-        return;
-    }
-
-    int count = json_object_array_length(parsed);
-    LOG_INFO("Windows:\n");
-    for (int i = 0; i < count; i++) {
-        json_object *c = json_object_array_get_idx(parsed, i);
-        LOG_DEBUG(" logging c: %d", c);
-
-        const char *title =
-            json_object_get_string(json_object_object_get(c, "title"));
-        const char *addr =
-            json_object_get_string(json_object_object_get(c, "address"));
-
-        LOG_INFO(" - %s (%s)\n", title ? title : "(untitled)", addr ? addr : "?");
-    }
-    json_object_put(parsed);
-}
-
-int hypr_ipc_get_client_titles(char ***titles_out, size_t *count_out) {
-    if (!titles_out || !count_out) {
-        return -1;
-    }
-
-    LOG_DEBUG("Fetching client titles");
-    LOG_DEBUG("title out %d", titles_out);
-    LOG_DEBUG("count out %d", count_out);
-    char *resp = NULL;
-    if (hypr_ipc_send_recv("j/clients", &resp) != 0) {
-        return -1;
-    }
-
-    json_object *parsed = json_tokener_parse(resp);
-
-    free(resp);
-    if (!parsed || !json_object_is_type(parsed, json_type_array)) {
-        if (parsed) json_object_put(parsed);
-        return -1;
-    }
-
-    const char *json_str = json_object_to_json_string(parsed);
-    LOG_DEBUG("json string %s", json_str);
-
-    int icount = json_object_array_length(parsed);
-    size_t count = (size_t)icount;
-
-    char **titles = NULL;
-    if (count > 0) {
-        titles = (char **)calloc(count, sizeof(char *));
-        if (!titles) {
-            json_object_put(parsed);
-            return -1;
-        }
-    }
-
-    for (int i = 0; i < icount; i++) {
-        json_object *c = json_object_array_get_idx(parsed, i);
-        const char *title =
-            json_object_get_string(json_object_object_get(c, "initialClass"));
-        if (!title || title[0] == '\0') {
-            title = "(untitled)";
-        }
-        titles[i] = strdup(title);
-        if (!titles[i]) {
-            for (int j = 0; j < i; j++) {
-                free(titles[j]);
-            }
-            free(titles);
-            json_object_put(parsed);
-            return -1;
-        }
-    }
-
-    *titles_out = titles;
-    *count_out = count;
-
-    json_object_put(parsed);
-    return 0;
-}
+/* Removed unused hypr_ipc_get_client_titles() */
 
 void hypr_ipc_free_titles(char **titles, size_t count) {
     if (!titles) return;
@@ -280,106 +192,7 @@ static int get_workspace_id_from_client(json_object *c) {
     return ws_id;
 }
 
-int hypr_ipc_get_focused_client(HyprClientInfo *out) {
-    if (!out) return -1;
-
-    /* Initialize output struct */
-    memset(out, 0, sizeof(*out));
-    out->workspace_id = -1;
-    out->pid = -1;
-    out->focusHistoryID = -1;
-    out->focused = false;
-
-    char *resp = NULL;
-    if (hypr_ipc_send_recv("j/clients", &resp) != 0) {
-        return -1;
-    }
-
-    json_object *arr = json_tokener_parse(resp);
-    free(resp);
-    if (!arr || !json_object_is_type(arr, json_type_array)) {
-        if (arr) json_object_put(arr);
-        return -1;
-    }
-
-    int len = json_object_array_length(arr);
-    HyprClientInfo tmp;
-    int found = 0;
-
-    for (int i = 0; i < len; i++) {
-        json_object *c = json_object_array_get_idx(arr, i);
-        if (!c || !json_object_is_type(c, json_type_object)) continue;
-
-        json_object *fh = json_object_object_get(c, "focusHistoryID");
-        if (fh && json_object_is_type(fh, json_type_int) &&
-            json_object_get_int(fh) == 0) {
-
-            memset(&tmp, 0, sizeof(tmp));
-            tmp.focusHistoryID = 0;
-            tmp.focused = true;
-            tmp.workspace_id = get_workspace_id_from_client(c);
-
-            json_object *pid_obj = json_object_object_get(c, "pid");
-            if (pid_obj && json_object_is_type(pid_obj, json_type_int))
-                tmp.pid = json_object_get_int(pid_obj);
-            else
-                tmp.pid = -1;
-
-            tmp.address = dup_json_string_field(c, "address");
-            tmp.title   = dup_json_string_field(c, "title");
-            if (!tmp.title || tmp.title[0] == '\0') {
-                free(tmp.title);
-                tmp.title = strdup("(untitled)");
-            }
-            tmp.app_class = dup_json_string_field(c, "class");
-            if (!tmp.app_class)
-                tmp.app_class = dup_json_string_field(c, "initialClass");
-
-            *out = tmp;
-            found = 1;
-            break;
-        }
-    }
-
-    json_object_put(arr);
-
-    if (found) return 0;
-
-    /* Fallback: activewindow */
-    resp = NULL;
-    if (hypr_ipc_send_recv("j/activewindow", &resp) != 0) {
-        return -1;
-    }
-    json_object *aw = json_tokener_parse(resp);
-    free(resp);
-    if (!aw || !json_object_is_type(aw, json_type_object)) {
-        if (aw) json_object_put(aw);
-        return -1;
-    }
-
-    memset(&tmp, 0, sizeof(tmp));
-    tmp.focused = true;
-    tmp.focusHistoryID = -1;
-    tmp.workspace_id = get_workspace_id_from_client(aw);
-    json_object *pid_obj = json_object_object_get(aw, "pid");
-    if (pid_obj && json_object_is_type(pid_obj, json_type_int))
-        tmp.pid = json_object_get_int(pid_obj);
-    else
-        tmp.pid = -1;
-    tmp.address = dup_json_string_field(aw, "address");
-    tmp.title   = dup_json_string_field(aw, "title");
-    if (!tmp.title || tmp.title[0] == '\0') {
-        free(tmp.title);
-        tmp.title = strdup("(untitled)");
-    }
-    tmp.app_class = dup_json_string_field(aw, "class");
-    if (!tmp.app_class)
-        tmp.app_class = dup_json_string_field(aw, "initialClass");
-
-    *out = tmp;
-    json_object_put(aw);
-    return 0;
-}
+/* Removed unused hypr_ipc_get_focused_client() */
 
 void hypr_ipc_free_client_info(HyprClientInfo *info) {
     if (!info) return;
@@ -480,4 +293,175 @@ void hypr_ipc_free_client_infos(HyprClientInfo *infos, size_t count) {
         hypr_ipc_free_client_info(&infos[i]);
     }
     free(infos);
+}
+
+/* ================= Multi-strategy focus (address, class, title) =================
+   Hyprland sometimes requires explicit prefixes (address:, class:, title:) or treats
+   the argument as a regex. We attempt several patterns until one succeeds.
+   Success heuristic: response does NOT contain "No such window found".
+*/
+
+int hypr_ipc_send_command_capture(const char *cmd, char *resp, size_t resp_len) {
+    int fd = hypr_open_socket();
+    if (fd < 0) {
+        LOG_WARN("[IPC] send_command_capture: socket open failed for '%s'", cmd);
+        return -1;
+    }
+
+    size_t len = strlen(cmd) + 1; /* NUL terminated per protocol */
+    ssize_t w = write(fd, cmd, len);
+    if (w != (ssize_t)len) {
+        LOG_WARN("[IPC] send_command_capture: write failed for '%s' (wrote=%zd expected=%zu)", cmd, w, len);
+        close(fd);
+        return -1;
+    }
+
+    if (resp && resp_len) {
+        int flags = fcntl(fd, F_GETFL, 0);
+        if (flags != -1) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        if (poll(&pfd, 1, 200) > 0 && (pfd.revents & POLLIN)) {
+            ssize_t r = read(fd, resp, resp_len - 1);
+            if (r > 0) {
+                resp[r] = '\0';
+            } else {
+                resp[0] = '\0';
+            }
+        } else {
+            if (resp_len > 0) resp[0] = '\0';
+        }
+    }
+
+    close(fd);
+    return 0;
+}
+
+/* Escape regex special chars for literal match; produce ^...$ */
+static void hypr_escape_regex(const char *in, char *out, size_t out_len) {
+    if (!out || out_len == 0) return;
+    size_t pos = 0;
+    if (pos < out_len - 1) out[pos++] = '^';
+    if (!in) in = "";
+    const char *special = ".^$*+?()[]{}|\\";
+    for (const char *p = in; *p && pos < out_len - 2; ++p) {
+        if (strchr(special, *p)) {
+            if (pos < out_len - 2) out[pos++] = '\\';
+        }
+        out[pos++] = *p;
+    }
+    if (pos < out_len - 1) out[pos++] = '$';
+    out[pos] = '\0';
+}
+
+/* Validate address (0x + hex) */
+static int validate_address_multi(const char *address) {
+    if (!address) return -1;
+    if (strncmp(address, "0x", 2) != 0) return -1;
+    const char *p = address + 2;
+    if (*p == '\0') return -1;
+    for (; *p; ++p) {
+        if (!((*p >= '0' && *p <= '9') ||
+              (*p >= 'a' && *p <= 'f') ||
+              (*p >= 'A' && *p <= 'F'))) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+/* Attempt focusing by address only (address: prefix then raw). Returns 0 if any succeeds. */
+int hypr_ipc_focus_address(const char *address) {
+    LOG_DEBUG("[IPC] multi-focus address attempt address='%s'", address ? address : "(null)");
+    if (validate_address_multi(address) != 0) {
+        LOG_WARN("[IPC] Invalid address format '%s'", address ? address : "(null)");
+        return -1;
+    }
+
+    char resp[256];
+    int overall_rc = -1;
+
+    /* Try with address: prefix */
+    {
+        char cmd[160];
+        snprintf(cmd, sizeof(cmd), "dispatch focuswindow address:%s", address);
+        if (hypr_ipc_send_command_capture(cmd, resp, sizeof resp) == 0) {
+            if (resp[0] == '\0' || !strstr(resp, "No such window found")) {
+                LOG_INFO("[IPC] Focus success (address: prefix) '%s'", address);
+                return 0;
+            }
+            LOG_DEBUG("[IPC] address: attempt failed response='%s'", resp);
+        }
+    }
+
+    /* Try raw address */
+    {
+        char cmd[160];
+        snprintf(cmd, sizeof(cmd), "dispatch focuswindow %s", address);
+        if (hypr_ipc_send_command_capture(cmd, resp, sizeof resp) == 0) {
+            if (resp[0] == '\0' || !strstr(resp, "No such window found")) {
+                LOG_INFO("[IPC] Focus success (raw address) '%s'", address);
+                return 0;
+            }
+            LOG_DEBUG("[IPC] raw address attempt failed response='%s'", resp);
+        }
+    }
+
+    LOG_WARN("[IPC] Focus by address failed '%s'", address);
+    return overall_rc;
+}
+
+/* Full multi-strategy: address, class, title */
+int hypr_ipc_focus_client(const HyprClientInfo *client) {
+    LOG_DEBUG("[IPC] multi-focus client ptr=%p", (void*)client);
+    if (!client) {
+        LOG_WARN("[IPC] focus_client: NULL client");
+        return -1;
+    }
+
+    /* 1. Address attempts */
+    if (client->address) {
+        if (hypr_ipc_focus_address(client->address) == 0) {
+            return 0;
+        }
+    }
+
+    char resp[256];
+
+    /* 2. Class attempt (escaped) */
+    if (client->app_class && client->app_class[0]) {
+        char escaped[256];
+        hypr_escape_regex(client->app_class, escaped, sizeof escaped);
+        char cmd[320];
+        snprintf(cmd, sizeof(cmd), "dispatch focuswindow class:%s", escaped);
+        LOG_DEBUG("[IPC] class attempt cmd='%s'", cmd);
+        if (hypr_ipc_send_command_capture(cmd, resp, sizeof resp) == 0) {
+            if (resp[0] == '\0' || !strstr(resp, "No such window found")) {
+                LOG_INFO("[IPC] Focus success (class) '%s'", client->app_class);
+                return 0;
+            }
+            LOG_DEBUG("[IPC] class attempt failed response='%s'", resp);
+        }
+    }
+
+    /* 3. Title attempt (escaped) */
+    if (client->title && client->title[0]) {
+        char escaped[256];
+        hypr_escape_regex(client->title, escaped, sizeof escaped);
+        char cmd[320];
+        snprintf(cmd, sizeof(cmd), "dispatch focuswindow title:%s", escaped);
+        LOG_DEBUG("[IPC] title attempt cmd='%s'", cmd);
+        if (hypr_ipc_send_command_capture(cmd, resp, sizeof resp) == 0) {
+            if (resp[0] == '\0' || !strstr(resp, "No such window found")) {
+                LOG_INFO("[IPC] Focus success (title) '%s'", client->title);
+                return 0;
+            }
+            LOG_DEBUG("[IPC] title attempt failed response='%s'", resp);
+        }
+    }
+
+    LOG_WARN("[IPC] All focus attempts failed (address=%s class=%s title=%s)",
+             client->address ? client->address : "(null)",
+             client->app_class ? client->app_class : "(null)",
+             client->title ? client->title : "(null)");
+    return -1;
 }

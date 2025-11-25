@@ -17,7 +17,6 @@ wayland_deps = [
   dependency('xkbcommon'),
 ]
 
-# Track the protocol XML as a file object so Meson can handle it properly
 wl_proto = files('protocols/wlr-layer-shell-unstable-v1.xml')
 
 wayland_scanner = find_program('wayland-scanner')
@@ -57,7 +56,6 @@ xdg_shell_code = custom_target(
   build_by_default: true
 )
 
-# Only relative source-tree dirs; Meson already adds current source+build dir automatically
 inc = include_directories('src', 'protocols')
 
 exe_sources = [
@@ -67,10 +65,10 @@ exe_sources = [
   'src/render.c',
   'src/input.c',
   'src/logger/logger.c',
-  xdg_shell_code,       # Generated C source (xdg-shell)
-  xdg_shell_header,     # Generated header (xdg-shell)
-  layer_shell_code,     # Generated C source (layer-shell)
-  layer_shell_header,   # Generated header (layer-shell)
+  xdg_shell_code,
+  xdg_shell_header,
+  layer_shell_code,
+  layer_shell_header,
 ]
 
 executable(
