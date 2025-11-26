@@ -23,51 +23,52 @@ static size_t s_buffer_len = 0;
 int hypr_events_connect(void) {
     const char *xdg = getenv("XDG_RUNTIME_DIR");
     const char *sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
-    
+
     if (!xdg || xdg[0] == '\0') {
         LOG_ERROR("[HYPR_EVENTS] XDG_RUNTIME_DIR not set");
         return -1;
     }
-    
+
     if (!sig || sig[0] == '\0') {
         LOG_ERROR("[HYPR_EVENTS] HYPRLAND_INSTANCE_SIGNATURE not set");
         return -1;
     }
-    
+
     char path[256];
     int ret = snprintf(path, sizeof(path), "%s/hypr/%s/.socket2.sock", xdg, sig);
     if (ret < 0 || (size_t)ret >= sizeof(path)) {
         LOG_ERROR("[HYPR_EVENTS] Event socket path too long");
         return -1;
     }
-    
+
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0) {
         LOG_ERROR("[HYPR_EVENTS] socket() failed: %s", strerror(errno));
         return -1;
     }
-    
+
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
-    strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
-    
+   strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+   addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
+
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         LOG_ERROR("[HYPR_EVENTS] connect(%s) failed: %s", path, strerror(errno));
         close(fd);
         return -1;
     }
-    
+
     /* Set non-blocking for integration with event loop */
     int flags = fcntl(fd, F_GETFL, 0);
     if (flags != -1) {
         fcntl(fd, F_SETFL, flags | O_NONBLOCK);
     }
-    
+
     /* Clear the buffer */
     s_buffer_len = 0;
     s_event_buffer[0] = '\0';
-    
+
     LOG_INFO("[HYPR_EVENTS] Connected to event socket: %s", path);
     return fd;
 }
@@ -79,19 +80,19 @@ static bool parse_event_line(const char *line, HyprEvent *event) {
     if (!line || !event) {
         return false;
     }
-    
+
     /* Initialize event */
     memset(event, 0, sizeof(*event));
     event->type = HYPR_EVENT_NONE;
     event->workspace_id = -1;
-    
+
     /* Find the >> separator */
     const char *sep = strstr(line, ">>");
     if (!sep) {
         LOG_DEBUG("[HYPR_EVENTS] Invalid event format (no >>): %s", line);
         return false;
     }
-    
+
     /* Extract event name */
     size_t name_len = sep - line;
     char event_name[64];
@@ -100,10 +101,10 @@ static bool parse_event_line(const char *line, HyprEvent *event) {
     }
     strncpy(event_name, line, name_len);
     event_name[name_len] = '\0';
-    
+
     /* Get data part */
     const char *data = sep + 2;
-    
+
     /* Determine event type and parse data */
     if (strcmp(event_name, "openwindow") == 0) {
         event->type = HYPR_EVENT_OPEN_WINDOW;
@@ -114,7 +115,7 @@ static bool parse_event_line(const char *line, HyprEvent *event) {
             char *saveptr;
             char *token;
             int field = 0;
-            
+
             token = strtok_r(data_copy, ",", &saveptr);
             while (token && field < 4) {
                 switch (field) {
@@ -129,13 +130,18 @@ static bool parse_event_line(const char *line, HyprEvent *event) {
                         break;
                     case 3: /* title - may contain commas, so get rest */
                         strncpy(event->title, token, sizeof(event->title) - 1);
-                        /* Append any remaining parts (title may have commas) */
                         while ((token = strtok_r(NULL, ",", &saveptr)) != NULL) {
                             size_t cur_len = strlen(event->title);
-                            if (cur_len + 1 + strlen(token) < sizeof(event->title)) {
+                            size_t remaining = sizeof(event->title) - cur_len - 1;
+
+                            if (remaining > 0) {
                                 event->title[cur_len] = ',';
-                                strcpy(event->title + cur_len + 1, token);
+                                event->title[cur_len + 1] = '\0';
+                                cur_len += 1;
+                                remaining -= 1;
                             }
+
+                            strncat(event->title, token, remaining);
                         }
                         break;
                 }
@@ -148,13 +154,13 @@ static bool parse_event_line(const char *line, HyprEvent *event) {
         }
         LOG_DEBUG("[HYPR_EVENTS] openwindow: addr=%s ws=%d class=%s title=%s",
                   event->address, event->workspace_id, event->window_class, event->title);
-                  
+
     } else if (strcmp(event_name, "closewindow") == 0) {
         event->type = HYPR_EVENT_CLOSE_WINDOW;
         /* Format: ADDRESS */
         snprintf(event->address, sizeof(event->address), "0x%s", data);
         LOG_DEBUG("[HYPR_EVENTS] closewindow: addr=%s", event->address);
-        
+
     } else if (strcmp(event_name, "activewindow") == 0) {
         event->type = HYPR_EVENT_ACTIVE_WINDOW;
         /* Format: CLASS,TITLE */
@@ -172,7 +178,7 @@ static bool parse_event_line(const char *line, HyprEvent *event) {
         }
         LOG_DEBUG("[HYPR_EVENTS] activewindow: class=%s title=%s",
                   event->window_class, event->title);
-                  
+
     } else if (strcmp(event_name, "movewindow") == 0) {
         event->type = HYPR_EVENT_MOVE_WINDOW;
         /* Format: ADDRESS,WORKSPACE_NAME */
@@ -189,13 +195,13 @@ static bool parse_event_line(const char *line, HyprEvent *event) {
         }
         LOG_DEBUG("[HYPR_EVENTS] movewindow: addr=%s ws=%d",
                   event->address, event->workspace_id);
-                  
+
     } else {
         event->type = HYPR_EVENT_UNKNOWN;
         LOG_DEBUG("[HYPR_EVENTS] Unknown event: %s", event_name);
         return false;
     }
-    
+
     return true;
 }
 
@@ -206,14 +212,14 @@ bool hypr_events_read(int fd, HyprEvent *event) {
     if (fd < 0 || !event) {
         return false;
     }
-    
+
     /* First, check if we have a complete line in the buffer */
     char *newline = strchr(s_event_buffer, '\n');
     if (newline) {
         /* Extract the line */
         *newline = '\0';
         bool parsed = parse_event_line(s_event_buffer, event);
-        
+
         /* Shift buffer to remove processed line */
         size_t line_len = newline - s_event_buffer + 1;
         size_t remaining = s_buffer_len - line_len;
@@ -222,13 +228,13 @@ bool hypr_events_read(int fd, HyprEvent *event) {
         }
         s_buffer_len = remaining;
         s_event_buffer[s_buffer_len] = '\0';
-        
+
         if (parsed) {
             return true;
         }
         /* If parsing failed, try to read more or return next line */
     }
-    
+
     /* Try to read more data */
     size_t space = EVENT_BUFFER_SIZE - s_buffer_len - 1;
     if (space > 0) {
@@ -236,13 +242,13 @@ bool hypr_events_read(int fd, HyprEvent *event) {
         if (nread > 0) {
             s_buffer_len += nread;
             s_event_buffer[s_buffer_len] = '\0';
-            
+
             /* Check again for complete line */
             newline = strchr(s_event_buffer, '\n');
             if (newline) {
                 *newline = '\0';
                 bool parsed = parse_event_line(s_event_buffer, event);
-                
+
                 size_t line_len = newline - s_event_buffer + 1;
                 size_t remaining = s_buffer_len - line_len;
                 if (remaining > 0) {
@@ -250,7 +256,7 @@ bool hypr_events_read(int fd, HyprEvent *event) {
                 }
                 s_buffer_len = remaining;
                 s_event_buffer[s_buffer_len] = '\0';
-                
+
                 return parsed;
             }
         } else if (nread < 0) {
@@ -262,7 +268,7 @@ bool hypr_events_read(int fd, HyprEvent *event) {
             LOG_WARN("[HYPR_EVENTS] Event socket connection closed");
         }
     }
-    
+
     return false;
 }
 
@@ -281,7 +287,7 @@ void hypr_events_disconnect(int fd) {
         close(fd);
         LOG_DEBUG("[HYPR_EVENTS] Disconnected from event socket");
     }
-    
+
     /* Clear buffer */
     s_buffer_len = 0;
     s_event_buffer[0] = '\0';

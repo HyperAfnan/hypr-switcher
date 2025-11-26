@@ -4,7 +4,6 @@
 #include "config.h"
 #include "logger/logger.h"
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -71,7 +70,7 @@ static const char *command_name(CommandType cmd) {
 int main(int argc, char *argv[]) {
     /* Parse arguments */
     CommandType command = CMD_CYCLE;
-    
+
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--backward") == 0 || strcmp(argv[i], "-b") == 0) {
             command = CMD_CYCLE_BACKWARD;
@@ -94,7 +93,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Failed to initialize logger\n");
         return 1;
     }
-    
+
     /* Load configuration (uses defaults if no config file found) */
     config_load();
 
@@ -126,7 +125,7 @@ int main(int argc, char *argv[]) {
 
     /*
      * No existing main instance found.
-     * 
+     *
      * For COMMIT and CANCEL commands, there's nothing to do if no instance exists.
      */
     if (command == CMD_COMMIT || command == CMD_CANCEL) {

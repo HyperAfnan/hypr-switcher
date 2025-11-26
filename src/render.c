@@ -13,6 +13,7 @@
 #include <sys/mman.h>
 #include <cairo/cairo.h>
 #include <pango/pangocairo.h>
+#include <glib.h>
 
 /* Forward declaration for mkstemp */
 int mkstemp(char *template);
@@ -42,6 +43,19 @@ static int create_shm_file(size_t size) {
 }
 
 /*
+ * Buffer release callback - called when compositor is done with the buffer.
+ * This ensures proper cleanup without memory leaks.
+ */
+static void buffer_release_callback(void *data, struct wl_buffer *buffer) {
+    (void)data;
+    wl_buffer_destroy(buffer);
+}
+
+static const struct wl_buffer_listener buffer_listener = {
+    .release = buffer_release_callback,
+};
+
+/*
  * Render context - holds all resources for a single render pass.
  * This encapsulates buffer creation and cleanup.
  */
@@ -64,10 +78,17 @@ typedef struct {
  */
 static bool render_context_init(RenderContext *ctx, int width, int height) {
     memset(ctx, 0, sizeof(*ctx));
+    
+    /* Sanity check dimensions to prevent overflow (max ~16K x 16K) */
+    if (width <= 0 || height <= 0 || width > 16384 || height > 16384) {
+        LOG_ERROR("[RENDER] Invalid dimensions: %dx%d", width, height);
+        return false;
+    }
+    
     ctx->width = width;
     ctx->height = height;
     ctx->stride = width * 4;
-    ctx->size = (size_t)(ctx->stride * height);
+    ctx->size = (size_t)ctx->stride * (size_t)height;
     ctx->valid = false;
     
     /* Create shared memory */
@@ -132,6 +153,7 @@ static void render_context_commit(RenderContext *ctx, struct wl_surface *surface
     ctx->buffer = wl_shm_pool_create_buffer(
         pool, 0, ctx->width, ctx->height, ctx->stride,
         WL_SHM_FORMAT_ARGB8888);
+    wl_buffer_add_listener(ctx->buffer, &buffer_listener, NULL);
     wl_shm_pool_destroy(pool);
     
     /* Attach and commit */
@@ -139,7 +161,7 @@ static void render_context_commit(RenderContext *ctx, struct wl_surface *surface
     wl_surface_damage(surface, 0, 0, ctx->width, ctx->height);
     wl_surface_commit(surface);
     
-    /* Note: buffer will be released by compositor, fd stays open until then */
+    /* Buffer will be destroyed in release callback when compositor is done */
     /* We can close fd now as Wayland has duplicated it internally */
     close(ctx->fd);
     ctx->fd = -1;
@@ -359,10 +381,20 @@ void render_draw_titles_focus(struct wl_surface *surface, int width, int height,
     
     /* Calculate scroll offset if focused item would be out of view */
     size_t scroll_offset = 0;
-    if (focused_index >= 0 && (size_t)focused_index >= visible_count) {
-        scroll_offset = (size_t)focused_index - visible_count + 1;
-        if (scroll_offset + visible_count > count) {
-            scroll_offset = count - visible_count;
+    if (focused_index >= 0) {
+        size_t fidx = (size_t)focused_index;
+        
+        /* Handle downward scrolling: focused item is below visible window */
+        if (fidx >= visible_count) {
+            scroll_offset = fidx - visible_count + 1;
+            if (scroll_offset + visible_count > count) {
+                scroll_offset = count - visible_count;
+            }
+        }
+        
+        /* Handle upward scrolling: focused item is above visible window */
+        if (fidx < scroll_offset) {
+            scroll_offset = fidx;
         }
     }
     

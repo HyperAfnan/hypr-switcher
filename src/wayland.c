@@ -71,6 +71,28 @@ static void rebuild_titles(void);
 static void redraw_overlay(void);
 
 /* ============================================================================
+ * Helper Functions
+ * ============================================================================ */
+
+/*
+ * Calculate overlay height with overflow protection.
+ * Returns a safe height value clamped to reasonable bounds.
+ */
+static uint32_t calculate_overlay_height(size_t visible_count, int item_height, int padding) {
+    #define MAX_OVERLAY_HEIGHT 4096
+    size_t raw_height = (visible_count * (size_t)item_height) + (2 * (size_t)padding);
+    if (raw_height > MAX_OVERLAY_HEIGHT) {
+        raw_height = MAX_OVERLAY_HEIGHT;
+    }
+    uint32_t desired_height = (uint32_t)raw_height;
+    uint32_t min_height = (uint32_t)item_height + (2 * (uint32_t)padding);
+    if (desired_height < min_height) {
+        desired_height = min_height;
+    }
+    return desired_height;
+}
+
+/* ============================================================================
  * Title Management (Deep Copy for Safety)
  * ============================================================================ */
 
@@ -113,7 +135,7 @@ static void rebuild_titles(void) {
         
         g_titles[i] = strdup(display_name);
         if (!g_titles[i]) {
-            g_titles[i] = strdup("(error)");
+            g_titles[i] = "(error)";
         }
     }
 }
@@ -290,10 +312,7 @@ static void refresh_client_list(void) {
             visible_count = (size_t)cfg->max_visible_items;
         }
         
-        uint32_t desired_height = (uint32_t)(visible_count * item_height) + (2 * padding);
-        if (desired_height < (uint32_t)item_height + (2 * padding)) {
-            desired_height = (uint32_t)item_height + (2 * padding);
-        }
+        uint32_t desired_height = calculate_overlay_height(visible_count, item_height, padding);
         
         if (desired_height != current_height) {
             current_height = desired_height;
@@ -487,10 +506,7 @@ static void layer_surface_configure(void *data,
             visible_count = (size_t)cfg->max_visible_items;
         }
         
-        uint32_t desired_height = (uint32_t)(visible_count * item_height) + (2 * padding);
-        if (desired_height < (uint32_t)item_height + (2 * padding)) {
-            desired_height = (uint32_t)item_height + (2 * padding);
-        }
+        uint32_t desired_height = calculate_overlay_height(visible_count, item_height, padding);
 
         current_height = desired_height;
         zwlr_layer_surface_v1_set_size(lsurf, current_width, current_height);
@@ -858,8 +874,13 @@ void wayland_loop_with_ipc(int ipc_listen_fd) {
                 LOG_WARN("[WAYLAND] Hyprland event socket disconnected");
                 hypr_events_disconnect(g_hypr_events_fd);
                 g_hypr_events_fd = -1;
+                
+                /* Compact the poll array by moving last element to this position */
+                if (hypr_events_poll_idx < nfds - 1) {
+                    pfds[hypr_events_poll_idx] = pfds[nfds - 1];
+                }
                 hypr_events_poll_idx = -1;
-                nfds--;  /* Reduce poll count */
+                nfds--;
             }
 
             /* IPC FD activity will be processed at start of next iteration */

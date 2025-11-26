@@ -112,6 +112,7 @@ int switcher_ipc_try_connect(void) {
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, s_socket_path, sizeof(addr.sun_path) - 1);
+    addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 
     if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         LOG_DEBUG("[SWITCHER_IPC] connect() failed: %s (stale socket?)", strerror(errno));
@@ -179,6 +180,7 @@ int switcher_ipc_listen(void) {
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     strncpy(addr.sun_path, s_socket_path, sizeof(addr.sun_path) - 1);
+    addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 
     if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         LOG_ERROR("[SWITCHER_IPC] bind(%s) failed: %s", s_socket_path, strerror(errno));
