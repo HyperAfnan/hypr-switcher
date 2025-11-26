@@ -295,6 +295,31 @@ void hypr_ipc_free_client_infos(HyprClientInfo *infos, size_t count) {
     free(infos);
 }
 
+/* Comparison function for qsort: sort by focusHistoryID ascending
+ * (0 = most recently focused, higher = older)
+ * Windows with focusHistoryID -1 go to the end */
+static int compare_by_focus_history(const void *a, const void *b) {
+    const HyprClientInfo *ca = (const HyprClientInfo *)a;
+    const HyprClientInfo *cb = (const HyprClientInfo *)b;
+    
+    /* Handle -1 (unknown/never focused) - push to end */
+    if (ca->focusHistoryID < 0 && cb->focusHistoryID >= 0) return 1;
+    if (cb->focusHistoryID < 0 && ca->focusHistoryID >= 0) return -1;
+    if (ca->focusHistoryID < 0 && cb->focusHistoryID < 0) return 0;
+    
+    /* Sort by focusHistoryID ascending (0 first, then 1, 2, etc.) */
+    if (ca->focusHistoryID < cb->focusHistoryID) return -1;
+    if (ca->focusHistoryID > cb->focusHistoryID) return 1;
+    return 0;
+}
+
+/* Sort clients by focus history (most recently focused first) */
+void hypr_ipc_sort_clients_by_focus(HyprClientInfo *clients, size_t count) {
+    if (!clients || count < 2) return;
+    qsort(clients, count, sizeof(HyprClientInfo), compare_by_focus_history);
+    LOG_DEBUG("[IPC] Sorted %zu clients by focus history", count);
+}
+
 /* ================= Multi-strategy focus (address, class, title) =================
    Hyprland sometimes requires explicit prefixes (address:, class:, title:) or treats
    the argument as a regex. We attempt several patterns until one succeeds.

@@ -286,9 +286,12 @@ static void refresh_client_list(void) {
         LOG_WARN("[WAYLAND] Failed to refresh client list");
         g_clients = NULL;
         g_client_count = 0;
+    } else {
+        /* Sort by focus history: most recently focused first */
+        hypr_ipc_sort_clients_by_focus(g_clients, g_client_count);
     }
     
-    LOG_DEBUG("[WAYLAND] Client list refreshed: %zu clients", g_client_count);
+    LOG_DEBUG("[WAYLAND] Client list refreshed: %zu clients (sorted by focus history)", g_client_count);
     
     /* Rebuild titles with deep copies */
     rebuild_titles();
@@ -475,25 +478,30 @@ static void layer_surface_configure(void *data,
 
     if (hypr_ipc_get_clients_basic(&g_clients, &g_client_count) == 0) {
 
-        /* Find the currently focused window */
-        for (size_t i = 0; i < g_client_count; ++i) {
-            if (g_clients[i].focused || g_clients[i].focusHistoryID == 0) {
-                g_selection_index = (int)i;
-                g_initial_focus_index = (int)i;
-                /* Store address for later (in case window closes) */
-                if (g_clients[i].address) {
-                    g_initial_focus_address = strdup(g_clients[i].address);
-                }
-                break;
+        /* Sort by focus history: most recently focused first */
+        hypr_ipc_sort_clients_by_focus(g_clients, g_client_count);
+
+        /* After sorting:
+         *   Index 0 = currently focused window (focusHistoryID == 0)
+         *   Index 1 = previously focused window (focusHistoryID == 1)
+         * 
+         * Initial focus is always index 0 (for Escape restore).
+         * Selection starts at index 1 (previous window) so one Tab press
+         * switches to the last used window. */
+        
+        g_initial_focus_index = 0;
+        if (g_client_count > 0 && g_clients[0].address) {
+            g_initial_focus_address = strdup(g_clients[0].address);
+            if (!g_initial_focus_address) {
+                LOG_WARN("[WAYLAND] Failed to allocate initial focus address");
             }
         }
         
-        if (g_selection_index < 0 && g_client_count > 0) {
+        /* Start selection at index 1 (previous window) if available */
+        if (g_client_count > 1) {
+            g_selection_index = 1;
+        } else if (g_client_count == 1) {
             g_selection_index = 0;
-            g_initial_focus_index = 0;
-            if (g_clients[0].address) {
-                g_initial_focus_address = strdup(g_clients[0].address);
-            }
         }
 
         /* Calculate dynamic height based on config */
@@ -522,6 +530,9 @@ static void layer_surface_configure(void *data,
         g_selected_address = NULL;
         if (g_selection_index >= 0 && g_clients[g_selection_index].address) {
             g_selected_address = strdup(g_clients[g_selection_index].address);
+            if (!g_selected_address) {
+                LOG_WARN("[WAYLAND] Failed to allocate selected address");
+            }
         }
 
         redraw_overlay();
