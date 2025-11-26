@@ -74,7 +74,7 @@ int switcher_ipc_get_socket_path(char *buf, size_t bufsize) {
     if (init_paths() != 0) {
         return -1;
     }
-    if (bufsize <= strlen(s_socket_path)) {
+    if (bufsize < strlen(s_socket_path) + 1) {
         return -1;
     }
     strncpy(buf, s_socket_path, bufsize);
