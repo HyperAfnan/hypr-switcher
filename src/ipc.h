@@ -37,6 +37,11 @@ int hypr_ipc_get_clients_basic(HyprClientInfo **list_out, size_t *count_out);
 /* Free an array of HyprClientInfo structs allocated by hypr_ipc_get_clients_basic. */
 void hypr_ipc_free_client_infos(HyprClientInfo *infos, size_t count);
 
+/* Sort clients by focus history (most recently focused first).
+   focusHistoryID 0 = currently focused, higher values = older focus.
+   Windows with focusHistoryID -1 (unknown) are placed at the end. */
+void hypr_ipc_sort_clients_by_focus(HyprClientInfo *clients, size_t count);
+
 /* Focus a client by multi-strategy:
    1) Try focusing by address (with "address:" prefix, then raw).
    2) Try focusing by class (escaped).
