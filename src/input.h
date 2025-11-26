@@ -45,6 +45,9 @@ bool input_focus_lost(void);
 bool input_alt_is_down(void);
 bool input_alt_released(void);
 
+/* Shift state helper (for reverse cycling with Shift+Alt+Tab) */
+bool input_shift_is_down(void);
+
 /* Returns true exactly once per Escape key press (press event). */
 bool input_escape_pressed(void);
 

@@ -61,6 +61,9 @@ inc = include_directories('src', 'protocols')
 exe_sources = [
   'src/main.c',
   'src/ipc.c',
+  'src/switcher_ipc.c',
+  'src/hypr_events.c',
+  'src/config.c',
   'src/wayland.c',
   'src/render.c',
   'src/input.c',
