@@ -156,12 +156,14 @@ void config_init_defaults(void) {
     g_config.padding = CONFIG_DEFAULT_PADDING;
     g_config.item_padding_x = CONFIG_DEFAULT_ITEM_PADDING_X;
     g_config.item_padding_y = CONFIG_DEFAULT_ITEM_PADDING_Y;
+    g_config.item_width = CONFIG_DEFAULT_ITEM_WIDTH;
     g_config.item_height = CONFIG_DEFAULT_ITEM_HEIGHT;
     g_config.corner_radius = CONFIG_DEFAULT_CORNER_RADIUS;
     g_config.border_width_normal = CONFIG_DEFAULT_BORDER_WIDTH_NORMAL;
     g_config.border_width_selected = CONFIG_DEFAULT_BORDER_WIDTH_SELECTED;
     g_config.overlay_width = CONFIG_DEFAULT_OVERLAY_WIDTH;
     g_config.max_visible_items = CONFIG_DEFAULT_MAX_VISIBLE_ITEMS;
+    g_config.preview_width = CONFIG_DEFAULT_PREVIEW_WIDTH;
     
     /* Behavior */
     g_config.show_index = CONFIG_DEFAULT_SHOW_INDEX;
@@ -295,9 +297,13 @@ static void parse_config_line(char *line) {
         int v = atoi(value);
         if (v >= 0 && v <= 100) g_config.item_padding_y = v;
     }
+    else if (strcmp(key, "item_width") == 0) {
+        int v = atoi(value);
+        if (v >= 10 && v <= 2000) g_config.item_width = v;
+    }
     else if (strcmp(key, "item_height") == 0) {
         int v = atoi(value);
-        if (v >= 20 && v <= 200) g_config.item_height = v;
+        if (v >= 20 && v <= 2000) g_config.item_height = v;
     }
     else if (strcmp(key, "corner_radius") == 0) {
         int v = atoi(value);
@@ -318,6 +324,10 @@ static void parse_config_line(char *line) {
     else if (strcmp(key, "max_visible_items") == 0 || strcmp(key, "max_items") == 0) {
         int v = atoi(value);
         if (v >= 0 && v <= 50) g_config.max_visible_items = v;
+    }
+    else if (strcmp(key, "preview_width") == 0) {
+        int v = atoi(value);
+        if (v >= 0 && v <= 1000) g_config.preview_width = v;
     }
     else if (strcmp(key, "show_index") == 0) {
         g_config.show_index = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0);

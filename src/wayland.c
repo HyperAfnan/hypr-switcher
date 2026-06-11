@@ -29,6 +29,7 @@ static struct zwlr_layer_shell_v1 *layer_shell;
 static struct wl_surface *surface;
 static struct zwlr_layer_surface_v1 *layer_surface;
 static struct wl_seat *seat;
+static struct hyprland_toplevel_export_manager_v1 *toplevel_export_manager;
 
 static uint32_t current_width  = 600;
 static uint32_t current_height = 120;
@@ -75,21 +76,21 @@ static void redraw_overlay(void);
  * ============================================================================ */
 
 /*
- * Calculate overlay height with overflow protection.
- * Returns a safe height value clamped to reasonable bounds.
+ * Calculate overlay width with overflow protection.
+ * Returns a safe width value clamped to reasonable bounds.
  */
-static uint32_t calculate_overlay_height(size_t visible_count, int item_height, int padding) {
-    #define MAX_OVERLAY_HEIGHT 4096
-    size_t raw_height = (visible_count * (size_t)item_height) + (2 * (size_t)padding);
-    if (raw_height > MAX_OVERLAY_HEIGHT) {
-        raw_height = MAX_OVERLAY_HEIGHT;
+static uint32_t calculate_overlay_width(size_t visible_count, int item_width, int padding) {
+    #define MAX_OVERLAY_WIDTH 8192
+    size_t raw_width = (visible_count * (size_t)item_width) + (2 * (size_t)padding);
+    if (raw_width > MAX_OVERLAY_WIDTH) {
+        raw_width = MAX_OVERLAY_WIDTH;
     }
-    uint32_t desired_height = (uint32_t)raw_height;
-    uint32_t min_height = (uint32_t)item_height + (2 * (uint32_t)padding);
-    if (desired_height < min_height) {
-        desired_height = min_height;
+    uint32_t desired_width = (uint32_t)raw_width;
+    uint32_t min_width = (uint32_t)item_width + (2 * (uint32_t)padding);
+    if (desired_width < min_width) {
+        desired_width = min_width;
     }
-    return desired_height;
+    return desired_width;
 }
 
 /* ============================================================================
@@ -306,6 +307,7 @@ static void refresh_client_list(void) {
     /* Update layer surface size based on config */
     if (layer_surface && g_client_count > 0) {
         const SwitcherConfig *cfg = config_get();
+        int item_width = cfg->item_width;
         int item_height = cfg->item_height;
         int padding = cfg->padding;
         size_t visible_count = g_client_count;
@@ -315,9 +317,11 @@ static void refresh_client_list(void) {
             visible_count = (size_t)cfg->max_visible_items;
         }
         
-        uint32_t desired_height = calculate_overlay_height(visible_count, item_height, padding);
+        uint32_t desired_width = calculate_overlay_width(visible_count, item_width, padding);
+        uint32_t desired_height = (uint32_t)item_height + (2 * (uint32_t)padding);
         
-        if (desired_height != current_height) {
+        if (desired_width != current_width || desired_height != current_height) {
+            current_width = desired_width;
             current_height = desired_height;
             zwlr_layer_surface_v1_set_size(layer_surface, current_width, current_height);
             wl_surface_commit(surface);
@@ -395,17 +399,21 @@ static void redraw_overlay(void) {
         return;
     }
     
-    if (g_titles && g_titles_count > 0) {
-        render_draw_titles_focus(surface, current_width, current_height,
-                                 (const char **)g_titles, g_titles_count, 
+    if (g_clients && g_client_count > 0) {
+        render_draw_clients(surface, current_width, current_height,
+                                 g_clients, g_client_count, 
                                  g_selection_index);
     } else {
         /* Show "No windows" placeholder */
-        render_draw_titles_focus(surface, current_width, current_height,
+        render_draw_clients(surface, current_width, current_height,
                                  NULL, 0, -1);
     }
     
     g_needs_redraw = false;
+}
+
+void wayland_request_redraw(void) {
+    g_needs_redraw = true;
 }
 
 /* ============================================================================
@@ -431,6 +439,10 @@ static void registry_add(void *data, struct wl_registry *registry,
     else if (strcmp(interface, "wl_seat") == 0) {
         seat = wl_registry_bind(registry, name, &wl_seat_interface, 7);
         input_handle_seat(seat);
+    }
+    else if (strcmp(interface, "hyprland_toplevel_export_manager_v1") == 0) {
+        toplevel_export_manager = wl_registry_bind(registry, name,
+            &hyprland_toplevel_export_manager_v1_interface, 2);
     }
 }
 
@@ -504,7 +516,8 @@ static void layer_surface_configure(void *data,
             g_selection_index = 0;
         }
 
-        /* Calculate dynamic height based on config */
+        /* Calculate dynamic width based on config */
+        int item_width = cfg->item_width;
         int item_height = cfg->item_height;
         int padding = cfg->padding;
         size_t visible_count = g_client_count;
@@ -514,8 +527,10 @@ static void layer_surface_configure(void *data,
             visible_count = (size_t)cfg->max_visible_items;
         }
         
-        uint32_t desired_height = calculate_overlay_height(visible_count, item_height, padding);
+        uint32_t desired_width = calculate_overlay_width(visible_count, item_width, padding);
+        uint32_t desired_height = (uint32_t)item_height + (2 * (uint32_t)padding);
 
+        current_width = desired_width;
         current_height = desired_height;
         zwlr_layer_surface_v1_set_size(lsurf, current_width, current_height);
         
@@ -586,10 +601,7 @@ void create_layer_surface() {
         ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY, "hyprswitcher");
 
     zwlr_layer_surface_v1_set_size(layer_surface, current_width, current_height);
-    zwlr_layer_surface_v1_set_anchor(layer_surface,
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP |
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT |
-        ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT);
+    zwlr_layer_surface_v1_set_anchor(layer_surface, 0);
 
     /* Enable keyboard interactivity so we receive key events */
     input_enable_layer_keyboard(layer_surface);
@@ -906,8 +918,12 @@ void wayland_loop_with_ipc(int ipc_listen_fd) {
  * Shutdown and Cleanup
  * ============================================================================ */
 
+#include "preview.h"
+
 void wayland_shutdown() {
     LOG_DEBUG("[WAYLAND] Shutting down...");
+    
+    preview_cleanup_all();
     
     /* Close Hyprland event socket */
     if (g_hypr_events_fd >= 0) {
@@ -940,10 +956,15 @@ void wayland_shutdown() {
 
     if (surface) { wl_surface_destroy(surface); surface = NULL; }
     if (layer_shell) { zwlr_layer_shell_v1_destroy(layer_shell); layer_shell = NULL; }
+    if (toplevel_export_manager) { hyprland_toplevel_export_manager_v1_destroy(toplevel_export_manager); toplevel_export_manager = NULL; }
     if (compositor) { wl_compositor_destroy(compositor); compositor = NULL; }
     if (shm) { wl_shm_destroy(shm); shm = NULL; }
     if (seat) { wl_seat_destroy(seat); seat = NULL; }
     if (display) { wl_display_disconnect(display); display = NULL; }
     
     LOG_INFO("[WAYLAND] Shutdown complete");
+}
+
+struct hyprland_toplevel_export_manager_v1 *get_toplevel_export_manager() {
+    return toplevel_export_manager;
 }

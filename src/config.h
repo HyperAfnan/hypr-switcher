@@ -58,12 +58,14 @@ typedef struct {
     int padding;                 /* Outer padding in pixels */
     int item_padding_x;          /* Horizontal padding inside items */
     int item_padding_y;          /* Vertical padding inside items */
-    int item_height;             /* Height of each item row */
+    int item_width;              /* Width of each item block */
+    int item_height;             /* Height of each item block */
     int corner_radius;           /* Rounded corner radius */
     int border_width_normal;     /* Border width for normal items */
     int border_width_selected;   /* Border width for selected item */
     int overlay_width;           /* Overlay width (0 = auto) */
     int max_visible_items;       /* Maximum items to show (0 = no limit) */
+    int preview_width;           /* Width of the live preview thumbnail */
     
     /* Behavior */
     bool show_index;             /* Show item index numbers */
@@ -181,14 +183,16 @@ int config_get_path(char *buf, size_t bufsize);
 
 /* Default sizing */
 #define CONFIG_DEFAULT_PADDING              16
-#define CONFIG_DEFAULT_ITEM_PADDING_X       12
-#define CONFIG_DEFAULT_ITEM_PADDING_Y       8
-#define CONFIG_DEFAULT_ITEM_HEIGHT          48
-#define CONFIG_DEFAULT_CORNER_RADIUS        8
+#define CONFIG_DEFAULT_ITEM_PADDING_X       16
+#define CONFIG_DEFAULT_ITEM_PADDING_Y       12
+#define CONFIG_DEFAULT_ITEM_WIDTH           360
+#define CONFIG_DEFAULT_ITEM_HEIGHT          320
+#define CONFIG_DEFAULT_CORNER_RADIUS        12
 #define CONFIG_DEFAULT_BORDER_WIDTH_NORMAL  1
 #define CONFIG_DEFAULT_BORDER_WIDTH_SELECTED 2
-#define CONFIG_DEFAULT_OVERLAY_WIDTH        600
-#define CONFIG_DEFAULT_MAX_VISIBLE_ITEMS    12
+#define CONFIG_DEFAULT_OVERLAY_WIDTH        800
+#define CONFIG_DEFAULT_MAX_VISIBLE_ITEMS    5
+#define CONFIG_DEFAULT_PREVIEW_WIDTH        360
 
 /* Default behavior */
 #define CONFIG_DEFAULT_SHOW_INDEX    false

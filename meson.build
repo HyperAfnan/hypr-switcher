@@ -56,6 +56,24 @@ xdg_shell_code = custom_target(
   build_by_default: true
 )
 
+toplevel_export_proto = files('protocols/hyprland-toplevel-export-v1.xml')
+
+toplevel_export_header = custom_target(
+  'toplevel-export-header',
+  input: toplevel_export_proto,
+  output: 'hyprland-toplevel-export-v1-client-protocol.h',
+  command: [wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'],
+  build_by_default: true
+)
+
+toplevel_export_code = custom_target(
+  'toplevel-export-code',
+  input: toplevel_export_proto,
+  output: 'hyprland-toplevel-export-v1-protocol.c',
+  command: [wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'],
+  build_by_default: true
+)
+
 inc = include_directories('src', 'protocols')
 
 exe_sources = [
@@ -67,11 +85,14 @@ exe_sources = [
   'src/wayland.c',
   'src/render.c',
   'src/input.c',
+  'src/preview.c',
   'src/logger/logger.c',
   xdg_shell_code,
   xdg_shell_header,
   layer_shell_code,
   layer_shell_header,
+  toplevel_export_code,
+  toplevel_export_header,
 ]
 
 executable(

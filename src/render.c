@@ -263,21 +263,14 @@ void render_draw(struct wl_surface *surface, int width, int height) {
     LOG_DEBUG("[RENDER] Drew placeholder %dx%d", width, height);
 }
 
-/*
- * Draw window titles without focus highlight.
- * (Wrapper for backward compatibility)
- */
-void render_draw_titles(struct wl_surface *surface, int width, int height,
-                        const char **titles, size_t count) {
-    render_draw_titles_focus(surface, width, height, titles, count, -1);
-}
+#include "preview.h"
 
 /*
- * Draw window titles with focus highlight.
+ * Draw window titles with focus highlight and thumbnails.
  * This is the main rendering function for the switcher overlay.
  */
-void render_draw_titles_focus(struct wl_surface *surface, int width, int height,
-                               const char **titles, size_t count, int focused_index) {
+void render_draw_clients(struct wl_surface *surface, int width, int height,
+                                HyprClientInfo *clients, size_t count, int focused_index) {
     if (!surface || width <= 0 || height <= 0) {
         return;
     }
@@ -331,23 +324,22 @@ void render_draw_titles_focus(struct wl_surface *surface, int width, int height,
     int padding = cfg->padding;
     int item_height = cfg->item_height;
     int item_pad_x = cfg->item_padding_x;
+    int item_pad_y = cfg->item_padding_y;
     int radius = cfg->corner_radius;
+    int preview_w = cfg->preview_width;
+    if (preview_w <= 0) preview_w = 0;
     
     int content_width = width - (2 * padding);
     if (content_width < 100) content_width = 100;
     
-    /* Set max width for text ellipsis */
-    int text_max_width = content_width - (2 * item_pad_x);
-    if (cfg->show_index) {
-        text_max_width -= 40;  /* Reserve space for index */
-    }
-    pango_layout_set_width(layout, text_max_width * PANGO_SCALE);
+    /* Set general ellipsis width, overriden per item */
+    pango_layout_set_width(layout, (cfg->item_width - 2 * item_pad_x) * PANGO_SCALE);
     
     /* ====================================================================
      * Handle Empty State
      * ==================================================================== */
     
-    if (count == 0 || !titles) {
+    if (count == 0 || !clients) {
         const char *msg = "No windows open";
         pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
         pango_layout_set_width(layout, -1);
@@ -403,14 +395,17 @@ void render_draw_titles_focus(struct wl_surface *surface, int width, int height,
         size_t i = vi + scroll_offset;
         if (i >= count) break;
         
-        const char *text = titles[i] ? titles[i] : "(untitled)";
+        const char *text = clients[i].app_class ? clients[i].app_class : "(untitled)";
         bool is_focused = ((int)i == focused_index);
         
-        /* Calculate item position */
-        double item_x = padding;
-        double item_y = padding + (vi * item_height);
-        double item_w = content_width;
-        double item_h = item_height - 4;  /* Small gap between items */
+        /* Request live preview capture for this visible client */
+        preview_capture_window(clients[i].address);
+        
+        /* Calculate horizontal item position */
+        double item_x = padding + (vi * cfg->item_width);
+        double item_y = padding;
+        double item_w = cfg->item_width - 4;  /* Small gap between items */
+        double item_h = item_height;
         
         /* ================================================================
          * Draw Item Background and Border
@@ -436,7 +431,7 @@ void render_draw_titles_focus(struct wl_surface *surface, int width, int height,
         }
         
         /* ================================================================
-         * Draw Item Text
+         * Calculate Item Text Position
          * ================================================================ */
         
         /* Build display text */
@@ -448,21 +443,75 @@ void render_draw_titles_focus(struct wl_surface *surface, int width, int height,
             display_text[sizeof(display_text) - 1] = '\0';
         }
         
+        double thumb_box_w = item_w - (2 * item_pad_x);
+        pango_layout_set_width(layout, thumb_box_w * PANGO_SCALE);
+        pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
         pango_layout_set_text(layout, display_text, -1);
         
         /* Get text dimensions */
         int tw, th;
         pango_layout_get_size(layout, &tw, &th);
+        double text_w = tw / (double)PANGO_SCALE;
         double text_h = th / (double)PANGO_SCALE;
         
-        /* Calculate text position (vertically centered in item) */
-        double text_x = item_x + item_pad_x;
-        double text_y = item_y + (item_h - text_h) / 2.0;
+        /* Calculate text position (horizontally centered, at the bottom) */
+        double text_x = item_x + (item_w - text_w) / 2.0;
+        double text_y = item_y + item_h - item_pad_y - text_h;
         
-        if (cfg->center_text) {
-            double text_w = tw / (double)PANGO_SCALE;
-            text_x = item_x + (item_w - text_w) / 2.0;
+        /* ================================================================
+         * Draw Preview Thumbnail
+         * ================================================================ */
+        
+        double thumb_box_x = item_x + item_pad_x;
+        double thumb_box_y = item_y + item_pad_y;
+        /* Box height goes from top padding down to 8px above the text */
+        double thumb_box_h = text_y - thumb_box_y - 8;
+        if (thumb_box_h < 4) thumb_box_h = 4;
+        
+        if (preview_w > 0) {
+            cairo_surface_t *thumb = preview_get_surface(clients[i].address);
+            if (thumb) {
+                int img_w = cairo_image_surface_get_width(thumb);
+                int img_h = cairo_image_surface_get_height(thumb);
+                
+                if (img_w > 0 && img_h > 0) {
+                    double scale_x = thumb_box_w / img_w;
+                    double scale_y = thumb_box_h / img_h;
+                    /* keep aspect ratio */
+                    double scale = (scale_x < scale_y) ? scale_x : scale_y;
+                    
+                    double draw_w = img_w * scale;
+                    double draw_h = img_h * scale;
+                    double thumb_x = thumb_box_x + (thumb_box_w - draw_w) / 2.0;
+                    /* Align to the bottom of the box to keep it close to text */
+                    double thumb_y = thumb_box_y + (thumb_box_h - draw_h);
+                    
+                    cairo_save(cr);
+                    cairo_translate(cr, thumb_x, thumb_y);
+                    cairo_scale(cr, scale, scale);
+                    cairo_set_source_surface(cr, thumb, 0, 0);
+                    cairo_pattern_set_filter(cairo_get_source(cr), CAIRO_FILTER_BILINEAR);
+                    
+                    /* Optional: draw rounded clip for thumbnail */
+                    cairo_new_path(cr);
+                    double inv_scale = 1.0 / scale;
+                    draw_rounded_rect(cr, 0, 0, img_w, img_h, radius * inv_scale);
+                    cairo_clip(cr);
+                    
+                    cairo_paint(cr);
+                    cairo_restore(cr);
+                }
+            } else {
+                /* Draw placeholder if not ready */
+                draw_rounded_rect(cr, thumb_box_x, thumb_box_y, thumb_box_w, thumb_box_h, radius);
+                set_color(cr, &cfg->border_color);
+                cairo_fill(cr);
+            }
         }
+        
+        /* ================================================================
+         * Draw Text Color & Render
+         * ================================================================ */
         
         /* Set text color */
         if (is_focused) {
@@ -481,26 +530,26 @@ void render_draw_titles_focus(struct wl_surface *surface, int width, int height,
      * ==================================================================== */
     
     if (scroll_offset > 0) {
-        /* Draw "more above" indicator */
+        /* Draw "more left" indicator */
         set_color(cr, &cfg->text_color);
         cairo_set_line_width(cr, 2);
-        double cx = width / 2.0;
-        double cy = padding / 2.0;
-        cairo_move_to(cr, cx - 10, cy + 3);
-        cairo_line_to(cr, cx, cy - 3);
-        cairo_line_to(cr, cx + 10, cy + 3);
+        double cx = padding / 2.0;
+        double cy = height / 2.0;
+        cairo_move_to(cr, cx + 3, cy - 10);
+        cairo_line_to(cr, cx - 3, cy);
+        cairo_line_to(cr, cx + 3, cy + 10);
         cairo_stroke(cr);
     }
     
     if (scroll_offset + visible_count < count) {
-        /* Draw "more below" indicator */
+        /* Draw "more right" indicator */
         set_color(cr, &cfg->text_color);
         cairo_set_line_width(cr, 2);
-        double cx = width / 2.0;
-        double cy = height - padding / 2.0;
-        cairo_move_to(cr, cx - 10, cy - 3);
-        cairo_line_to(cr, cx, cy + 3);
-        cairo_line_to(cr, cx + 10, cy - 3);
+        double cx = width - padding / 2.0;
+        double cy = height / 2.0;
+        cairo_move_to(cr, cx - 3, cy - 10);
+        cairo_line_to(cr, cx + 3, cy);
+        cairo_line_to(cr, cx - 3, cy + 10);
         cairo_stroke(cr);
     }
     

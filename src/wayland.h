@@ -1,6 +1,7 @@
 #pragma once
 #include <wayland-client.h>
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
+#include "hyprland-toplevel-export-v1-client-protocol.h"
 
 struct wl_display *init_wayland();
 void create_layer_surface();
@@ -10,3 +11,5 @@ void wayland_loop();
 void wayland_loop_with_ipc(int ipc_listen_fd);
 
 struct wl_shm *get_shm();
+struct hyprland_toplevel_export_manager_v1 *get_toplevel_export_manager();
+void wayland_request_redraw(void);
