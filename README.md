@@ -112,5 +112,5 @@ bindr = ALT, TAB, exec, hyprswitcher
 ## Roadmap
 
 - [ ] Add support for alt + shift + tab
-- [ ] Add support for a preview for all the client
+- [x] Add support for a preview for all the client
 - [ ] Improve UI
