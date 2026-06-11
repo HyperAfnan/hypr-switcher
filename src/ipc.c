@@ -13,15 +13,53 @@
 #include <errno.h>
 #include <logger/logger.h>
 
+#include <dirent.h>
+#include <sys/stat.h>
+
 static int hypr_open_socket(void) {
     const char *xdg = getenv("XDG_RUNTIME_DIR");
-    const char *sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
-    if (!xdg || !sig) {
-        LOG_DEBUG("[IPC] Missing XDG_RUNTIME_DIR or HYPRLAND_INSTANCE_SIGNATURE\n");
+    if (!xdg) {
+        LOG_DEBUG("[IPC] Missing XDG_RUNTIME_DIR\n");
         return -1;
     }
 
-    char path[256];
+    char sig_buf[256] = {0};
+    const char *sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
+
+    if (!sig) {
+        char base_path[256];
+        snprintf(base_path, sizeof(base_path), "%s/hypr", xdg);
+        DIR *dir = opendir(base_path);
+        if (dir) {
+            struct dirent *entry;
+            time_t newest_time = 0;
+            while ((entry = readdir(dir)) != NULL) {
+                if (entry->d_name[0] == '.') continue;
+                char full_path[512];
+                snprintf(full_path, sizeof(full_path), "%s/%s", base_path, entry->d_name);
+                struct stat st;
+                if (stat(full_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                    char sock_path[1024];
+                    snprintf(sock_path, sizeof(sock_path), "%s/.socket.sock", full_path);
+                    if (access(sock_path, F_OK) == 0) {
+                        if (st.st_mtime > newest_time) {
+                            newest_time = st.st_mtime;
+                            strncpy(sig_buf, entry->d_name, sizeof(sig_buf) - 1);
+                        }
+                    }
+                }
+            }
+            closedir(dir);
+        }
+        if (sig_buf[0] != '\0') {
+            sig = sig_buf;
+        } else {
+            LOG_DEBUG("[IPC] HYPRLAND_INSTANCE_SIGNATURE not set and could not find a valid socket\n");
+            return -1;
+        }
+    }
+
+    char path[512];
     snprintf(path, sizeof(path), "%s/hypr/%s/.socket.sock", xdg, sig);
 
     int fd = socket(AF_UNIX, SOCK_STREAM, 0);
